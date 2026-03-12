@@ -1,0 +1,32 @@
+# 虚拟环境（核心，必须加）
+venv/
+env/
+
+# Python 缓存文件
+__pycache__/
+*.pyc
+
+# IDE 配置文件（Trae/VS Code/IDEA）
+.idea/
+.vscode/
+*.iml
+*.ipr
+
+# 敏感/临时文件
+.env  # 存放密码、密钥等敏感信息
+*.log  # 日志文件
+.DS_Store  # 系统文件
+
+# 数据文件（不应该被Git跟踪）
+data/
+*.csv
+*.xlsx
+*.parquet
+
+# 操作系统相关文件
+Thumbs.db
+
+# 构建产物
+build/
+dist/
+*.egg-info/
