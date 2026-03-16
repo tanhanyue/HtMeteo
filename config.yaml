@@ -1,0 +1,100 @@
+global:
+  work_dir: ./data
+  log_level: INFO
+  log_file: ./logs/htmeteo.log
+  timezone: Asia/Shanghai
+account:
+  username: htqx
+  password: C0rn!ce11!
+database:
+  enabled: true
+  type: mysql
+  host: 1.95.181.98
+  port: 9030
+  user: admin
+  password: ''
+  name: power_spot_weather
+  table_prefix: weather_
+  pool_size: 5
+task-groups:
+- name: 关中平原历史气象组
+  type: history
+  enabled: false
+  locations:
+  - 西安市
+  - 咸阳市
+  - 渭南市
+  - 宝鸡市
+  - 铜川市
+  meteo_types:
+  - temperature_2m_max
+  - temperature_2m_min
+  - temperature_2m_mean
+  - precipitation_sum
+  - wind_speed_10m_mean
+  - shortwave_radiation_mean
+  schedule:
+    type: once
+  output:
+    to: local
+    format: parquet
+- name: 四川预报每日更新组
+  type: forecast
+  enabled: true
+  locations:
+  - 成都市
+  - 绵阳市
+  - 德阳市
+  - 南充市
+  - 宜宾市
+  - 雅安市
+  - 广元市
+  - 泸州市
+  meteo_types: []
+  schedule:
+    type: once
+  output:
+    to: both
+    format: csv
+- name: 全国预报全量拉取组
+  type: fetch-all-forecast
+  enabled: false
+  locations: []
+  meteo_types: []
+  schedule:
+    type: cron
+    cron: 30 5 * * *
+  output:
+    to: local
+    format: csv
+- name: 华南API实时预报组
+  type: api-forecast
+  enabled: false
+  locations:
+  - 广州市
+  - 深圳市
+  - 顺德区
+  - 佛山市
+  - 珠海市
+  meteo_types: []
+  schedule:
+    type: interval
+    interval: 3600
+  output:
+    to: database
+- name: 华东历史月度统计API组
+  type: api-history
+  enabled: false
+  locations:
+  - 南京市
+  - 上海市
+  - 合肥市
+  - 杭州市
+  meteo_types: []
+  query:
+    time_type: monthly
+  schedule:
+    type: once
+  output:
+    to: local
+    format: csv

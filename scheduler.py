@@ -33,6 +33,7 @@ except ImportError:
     _HAS_APSCHEDULER = False
 
 from config_loader import HtMeteoConfig, TaskGroup
+from db_writer import write_dataframe_to_db
 from HtMeteo import HtMeteo
 
 
@@ -253,29 +254,22 @@ class HtMeteoScheduler:
 
     def _write_to_db(self, df: pd.DataFrame, location: str,
                      table_suffix: str, tg: TaskGroup) -> None:
-        """
-        将 DataFrame 写入数据库。
-
-        当前为占位实现，记录日志并提示接入方式。
-        若需实际写库，可在此引入 SQLAlchemy / pymysql 并按项目规范实现。
-        """
+        """将 DataFrame 写入 config 中配置的数据库（表不存在则自动建表后追加）。"""
         db = self.config.database
-        table = f"{db.table_prefix}{table_suffix}"
+        # 表名 = 前缀 + 后缀，例如 ht_ + forecast_hourly => ht_forecast_hourly
+        table_name = f"{db.table_prefix}{table_suffix}"
         self.logger.info(
-            f"  [DB] 准备写入 {db.type}://{db.host}:{db.port}/{db.name}.{table} "
+            f"  [DB] 准备写入 {db.type}://{db.host}:{db.port}/{db.name}.{table_name} "
             f"地点={location} 行数={len(df)}"
         )
-        # ── 示例：SQLAlchemy 写入（取消注释并安装依赖后生效） ──────────────
-        # from sqlalchemy import create_engine
-        # url = (
-        #     f"{db.type}+pymysql://{db.user}:{db.password}"
-        #     f"@{db.host}:{db.port}/{db.name}"
-        # )
-        # engine = create_engine(url, pool_size=db.pool_size)
-        # df_to_write = df.copy()
-        # df_to_write["location"] = location
-        # df_to_write.to_sql(table, engine, if_exists="append", index=True)
-        # self.logger.info(f"  [DB] 写入完成：{len(df)} 行 → {table}")
+        try:
+            write_dataframe_to_db(df, table_name, db, location)
+        except Exception as e:
+            self.logger.error(
+                f"  [DB] 写入失败 地点={location} 表={table_name}: {e}",
+                exc_info=True,
+            )
+            raise
 
 
 # ── 命令行入口 ─────────────────────────────────────────────────────────────────
