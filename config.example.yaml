@@ -1,0 +1,40 @@
+# =============================================================================
+# HtMeteo 配置文件模板
+# 复制本文件为 config.yaml 后填写真实信息即可使用
+#   cp config.example.yaml config.yaml
+# =============================================================================
+
+global:
+  work_dir: ./data
+  log_level: INFO
+  log_file: ./logs/htmeteo.log
+  timezone: Asia/Shanghai
+
+account:
+  username: "your_email@example.com"   # 海天气象用户名
+  password: "your_password"            # 海天气象密码
+
+database:
+  enabled: false
+  type: mysql
+  host: localhost
+  port: 3306
+  user: root
+  password: ""
+  name: weather
+  table_prefix: "ht_"
+  pool_size: 5
+
+task-groups: []
+# 可在网页控制台的【编辑配置】标签页中添加任务组，也可在此手动编写：
+# - name: 示例任务组
+#   type: forecast
+#   enabled: true
+#   locations:
+#     - 成都市
+#   meteo_types: []
+#   schedule:
+#     type: once
+#   output:
+#     to: local
+#     format: csv

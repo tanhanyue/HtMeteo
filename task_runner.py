@@ -65,6 +65,9 @@ def _run_forecast(tg: "TaskGroup", meteo: "HtMeteo", config: "HtMeteoConfig | No
             try:
                 from db_writer import write_dataframe_to_db
                 df = meteo.forecast_hourly_series()
+                logger.info(f"  [DB] 读取到 DataFrame：{len(df)} 行 × {len(df.columns)} 列")
+                if len(df) > 0:
+                    logger.info(f"  [DB] 时间范围：{df.index[0]} ~ {df.index[-1]}")
                 table_name = f"{config.database.table_prefix}forecast_hourly"
                 write_dataframe_to_db(df, table_name, config.database, loc)
             except Exception as e:

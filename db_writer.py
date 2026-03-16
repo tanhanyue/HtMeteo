@@ -94,18 +94,36 @@ def write_dataframe_to_db(
 
     try:
         n = len(out)
+        date_col = out.get("date")
+        if date_col is not None and len(date_col) > 0:
+            logger.info(
+                f"  [DB] 待写入 {n} 行，时间范围 {date_col.iloc[0]} ~ {date_col.iloc[-1]}，"
+                f"列数 {len(out.columns)}，列名 {list(out.columns[:5])}..."
+            )
+        else:
+            logger.info(f"  [DB] 待写入 {n} 行 × {len(out.columns)} 列")
+
         out.to_sql(
             table_name,
             engine,
             if_exists="append",
             index=False,
             method="multi",
-            chunksize=1000,
+            chunksize=500,
         )
         logger.info(f"  [DB] 写入完成：{n} 行 → {table_name} 地点={location}")
         return n
     except OperationalError as e:
         err_msg = str(e).lower()
+        # 认证失败（用户名/密码错误）
+        if "access denied" in err_msg or "1045" in err_msg:
+            raise RuntimeError(
+                "数据库认证失败，请检查：\n"
+                f"  1) config.yaml 中 database.user={db.user} 是否正确；\n"
+                "  2) database.password 是否填写（当前为空则会报 'using password: NO'）；\n"
+                "  3) 该用户是否有权限访问目标数据库。\n"
+                f"原始错误：{e}"
+            ) from e
         # 连接失败（无法连上、超时、拒绝等）
         if "can't connect" in err_msg or "connection" in err_msg or "refused" in err_msg or "timeout" in err_msg or "2003" in err_msg:
             raise RuntimeError(_wrap_connection_error(e, db)) from e
