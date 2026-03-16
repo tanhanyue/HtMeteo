@@ -12,45 +12,96 @@ import shutil
 
 
 class HtMeteo:
-    def __init__(self, username='username', password='password'):
-        self.hourly_history_meteo_data_path = './data/history'  # 逐小时数据存放目录，内含地名目录，地名目录内含数据文件
-        self.daily_history_meteo_data_path = './data/history_analysis/daily_analysis'  # 逐日数据存放目录，内含数据文件
-        self.monthly_history_meteo_data_path = './data/history_analysis/monthly_analysis'  # 逐月数据存放目录，内含数据文件
-        self.yearly_history_meteo_data_path = './data/history_analysis/yearly_analysis'  # 逐月数据存放目录，内含数据文件
-        self.forecast_data_path = f'./data/forecast'
-        self.temp_data_path = f'./data/temp'
-        self.work_dirs = [self.hourly_history_meteo_data_path,
-                          self.daily_history_meteo_data_path,
-                          self.monthly_history_meteo_data_path,
-                          self.yearly_history_meteo_data_path,
-                          self.forecast_data_path,
-                          self.temp_data_path]
+    """
+    HtMeteo 超级气象信息体。
+
+    支持两种初始化方式：
+
+    1. 经典方式（向后兼容）::
+
+        h = HtMeteo(username='user', password='pass')
+
+    2. 配置驱动方式（推荐）::
+
+        from config_loader import HtMeteoConfig
+        cfg = HtMeteoConfig('config.yaml')
+        h = HtMeteo.from_config(cfg)
+
+    ``work_dir`` 参数指定数据根目录，所有子目录均在其下自动创建，
+    默认值 ``'./data'`` 与旧版行为一致。
+    """
+
+    def __init__(self, username: str = 'username', password: str = 'password',
+                 work_dir: str = './data') -> None:
+        # ── 工作目录（均由 work_dir 派生，不再硬编码）────────────────────────
+        self._work_dir_root = Path(work_dir)
+        self.hourly_history_meteo_data_path = str(self._work_dir_root / 'history')
+        self.daily_history_meteo_data_path = str(self._work_dir_root / 'history_analysis' / 'daily_analysis')
+        self.monthly_history_meteo_data_path = str(self._work_dir_root / 'history_analysis' / 'monthly_analysis')
+        self.yearly_history_meteo_data_path = str(self._work_dir_root / 'history_analysis' / 'yearly_analysis')
+        self.forecast_data_path = str(self._work_dir_root / 'forecast')
+        self.temp_data_path = str(self._work_dir_root / 'temp')
+        self.work_dirs = [
+            self.hourly_history_meteo_data_path,
+            self.daily_history_meteo_data_path,
+            self.monthly_history_meteo_data_path,
+            self.yearly_history_meteo_data_path,
+            self.forecast_data_path,
+            self.temp_data_path,
+        ]
+
+        # ── 账户信息 ─────────────────────────────────────────────────────────
         self.username = username
         self.password = password
         self.account_info = '用户尚未认证'
         self.account_type = '普通用户'
         self.subscribe_days = 0
         self.api_key = '26262626262626262626262626'
-        self.session = None  # self.login_account()
+        self.session = None
+
+        # ── 运行状态 ─────────────────────────────────────────────────────────
         self.location = ''
-        self.years = [i for i in range(2000, 2026)]
+        self.years = list(range(2000, 2026))
         self.locations = [self.location]
         self.forecast_mode = 'off'
         self.history_mode = 'on'
+
         self.create_work_dirs()
 
-    def create_work_dirs(self):
+    # ── 配置驱动工厂方法 ──────────────────────────────────────────────────────
+
+    @classmethod
+    def from_config(cls, config) -> 'HtMeteo':
+        """
+        从 ``HtMeteoConfig`` 实例创建 HtMeteo 对象。
+
+        ::
+
+            from config_loader import HtMeteoConfig
+            cfg = HtMeteoConfig('config.yaml')
+            h = HtMeteo.from_config(cfg)
+
+        :param config: ``HtMeteoConfig`` 实例。
+        :returns: 完成初始化的 ``HtMeteo`` 实例。
+        """
+        instance = cls(
+            username=config.account.username,
+            password=config.account.password,
+            work_dir=config.global_config.work_dir,
+        )
+        instance._htmeteo_config = config
+        return instance
+
+    # ── 目录管理 ──────────────────────────────────────────────────────────────
+
+    def create_work_dirs(self) -> None:
         for work_dir in self.work_dirs:
-            p = Path(work_dir)
-            p.mkdir(parents=True, exist_ok=True)
-            # print(f'创建工作目录：{work_dir}······')
+            Path(work_dir).mkdir(parents=True, exist_ok=True)
         print('工作目录初始化完毕。')
 
-    def clear_data_dir(self):
-        data_dir = Path('./data')
-        if data_dir.exists() and data_dir.is_dir():
-            shutil.rmtree(data_dir)
-        # self.create_work_dirs()
+    def clear_data_dir(self) -> None:
+        if self._work_dir_root.exists() and self._work_dir_root.is_dir():
+            shutil.rmtree(self._work_dir_root)
         print('工作目录已清空。')
 
     def login_account(self):

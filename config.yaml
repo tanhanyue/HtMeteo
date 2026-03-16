@@ -1,0 +1,165 @@
+# =============================================================================
+# HtMeteo 配置驱动系统 — config.yaml
+# 参考 Clash 风格的任务组设计，在一个文件中管理所有抓取任务
+# =============================================================================
+
+
+# ── 全局设置 ──────────────────────────────────────────────────────────────────
+global:
+  work_dir: ./data              # 数据根目录（所有子目录均在此下自动创建）
+  log_level: INFO               # 日志等级：DEBUG | INFO | WARNING | ERROR
+  log_file: ./logs/htmeteo.log  # 日志文件路径
+  timezone: Asia/Shanghai       # 调度时区
+
+
+# ── 账户信息 ──────────────────────────────────────────────────────────────────
+account:
+  username: "your_email@example.com"
+  password: "your_password"
+
+
+# ── 数据库配置 ────────────────────────────────────────────────────────────────
+database:
+  enabled: false          # true 时才真正写入数据库
+  type: mysql             # mysql | postgresql | sqlite
+  host: localhost
+  port: 3306
+  user: root
+  password: ""
+  name: weather           # 数据库名
+  table_prefix: "ht_"    # 表名前缀，例如 ht_forecast_hourly
+  pool_size: 5            # 连接池大小
+
+
+# ── 任务组定义 ────────────────────────────────────────────────────────────────
+# 类似 Clash 的 proxy-groups 设计，每个 task-group 是一个完整的抓取策略。
+#
+# type 可选值：
+#   history           — 下载缓存逐小时历史气象数据（含逐日/月/年统计分析）
+#   forecast          — 下载缓存指定地点最新天气预报数据
+#   fetch-all-forecast — 一次性拉取全国 3191 个市区县最新天气预报 ZIP
+#   api-forecast      — 在线 API 直查逐小时天气预报（不落本地缓存）
+#   api-history       — 在线 API 直查历史天气数据（不落本地缓存）
+#
+# schedule.type 可选值：
+#   once     — 程序启动时立即执行一次，之后不再重复
+#   cron     — 按 cron 表达式定时执行（需填 cron 字段）
+#   interval — 按固定间隔执行（需填 interval 字段，单位：秒）
+#
+# output.to 可选值：
+#   local    — 只保存到本地文件
+#   database — 只写入数据库（需 database.enabled: true）
+#   both     — 同时写本地和数据库
+#
+# output.format（仅 local 或 both 时生效）：
+#   parquet | csv
+# =============================================================================
+
+task-groups:
+
+  # --------------------------------------------------------------------------
+  # 示例 1：历史气象数据 — 关中平原城市组
+  # type=history 会下载逐小时历史 + 逐日/月/年统计分析数据并缓存到本地
+  # --------------------------------------------------------------------------
+  - name: 关中平原历史气象组
+    type: history
+    enabled: true
+    locations:
+      - 西安市
+      - 咸阳市
+      - 渭南市
+      - 宝鸡市
+      - 铜川市
+    meteo_types:                    # 调取数据时使用的要素列表（留空则使用全部要素）
+      - temperature_2m_max
+      - temperature_2m_min
+      - temperature_2m_mean
+      - precipitation_sum
+      - wind_speed_10m_mean
+      - shortwave_radiation_mean
+    schedule:
+      type: once                    # 启动时执行一次即可，历史数据不需要频繁更新
+    output:
+      to: local
+      format: parquet
+
+  # --------------------------------------------------------------------------
+  # 示例 2：天气预报缓存 — 四川省主要城市，每日早 6 点自动更新
+  # type=forecast 会将预报数据下载到 ./data/forecast/ 目录
+  # --------------------------------------------------------------------------
+  - name: 四川预报每日更新组
+    type: forecast
+    enabled: true
+    locations:
+      - 成都市
+      - 绵阳市
+      - 德阳市
+      - 南充市
+      - 宜宾市
+      - 雅安市
+      - 广元市
+      - 泸州市
+    meteo_types: []                 # 留空表示全部 32 种预报要素
+    schedule:
+      type: cron
+      cron: "0 6 * * *"            # 每天 06:00 执行
+    output:
+      to: both                      # 本地 + 写库（需 database.enabled: true）
+      format: csv
+
+  # --------------------------------------------------------------------------
+  # 示例 3：全国预报全量拉取 — 每日 05:30 下载全国 3191 个城市预报 ZIP
+  # 适用于天气预报网站/APP 的数据后台，默认关闭，按需开启
+  # --------------------------------------------------------------------------
+  - name: 全国预报全量拉取组
+    type: fetch-all-forecast
+    enabled: false                  # 数据量大，默认关闭
+    locations: []                   # fetch-all-forecast 忽略此字段
+    meteo_types: []
+    schedule:
+      type: cron
+      cron: "30 5 * * *"           # 每天 05:30 执行（早于业务高峰期）
+    output:
+      to: local
+      format: csv
+
+  # --------------------------------------------------------------------------
+  # 示例 4：API 实时预报直查 — 华南城市，每小时刷新一次，仅写库不落本地
+  # type=api-forecast 直接请求在线 API，不会产生本地文件缓存
+  # --------------------------------------------------------------------------
+  - name: 华南API实时预报组
+    type: api-forecast
+    enabled: true
+    locations:
+      - 广州市
+      - 深圳市
+      - 顺德区
+      - 佛山市
+      - 珠海市
+    meteo_types: []
+    schedule:
+      type: interval
+      interval: 3600                # 每 3600 秒（1 小时）执行一次
+    output:
+      to: database                  # 只写数据库（需 database.enabled: true）
+
+  # --------------------------------------------------------------------------
+  # 示例 5：API 历史统计直查 — 华东城市，按月统计，启动执行一次
+  # type=api-history 使用 api_history_analysis() 接口，不落本地缓存
+  # --------------------------------------------------------------------------
+  - name: 华东历史月度统计API组
+    type: api-history
+    enabled: false
+    locations:
+      - 南京市
+      - 上海市
+      - 合肥市
+      - 杭州市
+    meteo_types: []
+    query:
+      time_type: monthly            # daily | monthly | yearly
+    schedule:
+      type: once
+    output:
+      to: local
+      format: csv
