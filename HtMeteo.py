@@ -245,6 +245,9 @@ class HtMeteo:
                 forecast_daily_url = f"https://app.cornicelli.net/meteo/api/forecast/daily/{self.location}/{date_now[:4]}/{date_now[5:7]}/{date_now[8:]}/{self.api_key}"
                 response_bytes = requests.get(forecast_daily_url)
                 json_str = response_bytes.content.decode('utf-8')
+                if not json_str or not json_str.strip().startswith('{') and not json_str.strip().startswith('['):
+                    print(f'{self.location} 在平台中无数据，跳过。')
+                    return
                 data_dic = json.loads(json_str)
                 df = pd.DataFrame.from_dict(data_dic)
                 with open(temp_csv_path, "wb") as f:

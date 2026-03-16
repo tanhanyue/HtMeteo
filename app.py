@@ -23,8 +23,11 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+import pandas as pd
+
 CONFIG_PATH = "config.yaml"
 CONFIG_EXAMPLE_PATH = "config.example.yaml"
+AREA_CSV_PATH = "docs/t_dim_area.csv"
 PYTHON_EXEC = sys.executable
 
 if not Path(CONFIG_PATH).exists():
@@ -62,6 +65,28 @@ def save_raw(data: dict) -> None:
 def save_and_reload(data: dict) -> None:
     save_raw(data)
     st.rerun()
+
+
+# ── 地区数据（省→市区县映射，只加载一次）────────────────────────────────────
+
+@st.cache_data
+def load_area_data() -> tuple[list[str], dict[str, list[str]]]:
+    """从 t_dim_area.csv 加载省份→城市映射，返回 (省份列表, {省份: [城市列表]})。"""
+    df = pd.read_csv(AREA_CSV_PATH, encoding="utf-8", dtype=str)
+    counties = df[df["area_level"] == "county"][["province_name", "county_name"]].dropna()
+    province_city: dict[str, list[str]] = {}
+    for _, row in counties.iterrows():
+        prov = row["province_name"]
+        city = row["county_name"]
+        province_city.setdefault(prov, []).append(city)
+    provinces = list(province_city.keys())
+    return provinces, province_city
+
+
+if Path(AREA_CSV_PATH).exists():
+    ALL_PROVINCES, PROVINCE_CITIES = load_area_data()
+else:
+    ALL_PROVINCES, PROVINCE_CITIES = [], {}
 
 
 # ── 子进程执行 ────────────────────────────────────────────────────────────────
@@ -328,7 +353,71 @@ with tab_edit:
 
                 st.divider()
 
-                # ── 编辑表单 ─────────────────────────────────────────────
+                # ── 城市选取（二级联动：省→城市）────────────────────────
+                st.markdown("**🏙 城市管理**")
+                if ALL_PROVINCES:
+                    pa, pb = st.columns(2)
+                    with pa:
+                        sel_prov = st.selectbox("选择省份", ALL_PROVINCES, key=f"prov_{idx}")
+                    with pb:
+                        prov_cities = PROVINCE_CITIES.get(sel_prov, [])
+                        add_mode = st.radio(
+                            "添加方式", ["选择单个城市", "整省全部添加"],
+                            key=f"addmode_{idx}", horizontal=True,
+                        )
+
+                    if add_mode == "选择单个城市":
+                        ac1, ac2 = st.columns([4, 1])
+                        with ac1:
+                            sel_city = st.selectbox("选择城市", prov_cities, key=f"selcity_{idx}")
+                        with ac2:
+                            st.markdown("<br>", unsafe_allow_html=True)
+                            if st.button("➕ 添加", key=f"addc_{idx}"):
+                                if sel_city and sel_city not in g_locs:
+                                    fresh = load_raw()
+                                    for t in fresh.get("task-groups", []):
+                                        if t.get("name") == g_name:
+                                            t.setdefault("locations", []).append(sel_city)
+                                    save_and_reload(fresh)
+                                elif sel_city in g_locs:
+                                    st.warning(f"「{sel_city}」已在列表中")
+                    else:
+                        new_cities = [c for c in prov_cities if c not in g_locs]
+                        st.caption(f"{sel_prov} 共 {len(prov_cities)} 个城市，其中 {len(new_cities)} 个未添加")
+                        if st.button(f"➕ 添加 {sel_prov} 全部 {len(new_cities)} 个城市", key=f"addall_{idx}"):
+                            if new_cities:
+                                fresh = load_raw()
+                                for t in fresh.get("task-groups", []):
+                                    if t.get("name") == g_name:
+                                        t.setdefault("locations", []).extend(new_cities)
+                                save_and_reload(fresh)
+
+                # 已选城市展示 + 逐个删除
+                if g_locs:
+                    with st.expander(f"当前已选 {len(g_locs)} 个城市（点击展开管理）"):
+                        n_cols = 5
+                        cols = st.columns(n_cols)
+                        for i, loc in enumerate(g_locs):
+                            with cols[i % n_cols]:
+                                la, lb = st.columns([3, 1])
+                                la.caption(loc)
+                                if lb.button("✕", key=f"rm_{idx}_{i}", help=f"移除 {loc}"):
+                                    fresh = load_raw()
+                                    for t in fresh.get("task-groups", []):
+                                        if t.get("name") == g_name and loc in (t.get("locations") or []):
+                                            t["locations"].remove(loc)
+                                    save_and_reload(fresh)
+                        st.divider()
+                        if st.button("🗑 清空全部城市", key=f"clearall_{idx}", type="secondary"):
+                            fresh = load_raw()
+                            for t in fresh.get("task-groups", []):
+                                if t.get("name") == g_name:
+                                    t["locations"] = []
+                            save_and_reload(fresh)
+
+                st.divider()
+
+                # ── 其他配置表单 ─────────────────────────────────────────
                 with st.form(f"edit_{idx}", clear_on_submit=False):
                     ea, eb = st.columns(2)
 
@@ -340,12 +429,6 @@ with tab_edit:
                             index=type_keys.index(g_type) if g_type in type_keys else 0,
                             format_func=lambda k: f"{TYPE_INFO[k][0]} {TYPE_INFO[k][1]}",
                             key=f"etype_{idx}",
-                        )
-                        e_locs_text = st.text_area(
-                            "城市列表（每行一个）",
-                            value="\n".join(g_locs),
-                            height=150,
-                            key=f"elocs_{idx}",
                         )
 
                     with eb:
@@ -379,9 +462,8 @@ with tab_edit:
                             key=f"efmt_{idx}",
                         )
 
-                    save_edit = st.form_submit_button("💾 保存修改", type="primary")
+                    save_edit = st.form_submit_button("💾 保存配置", type="primary")
                     if save_edit:
-                        new_locs = [l.strip() for l in e_locs_text.strip().splitlines() if l.strip()]
                         new_sched: dict = {"type": e_sched_type}
                         if e_sched_type == "cron":
                             new_sched["cron"] = e_cron.strip()
@@ -393,7 +475,6 @@ with tab_edit:
                             if t.get("name") == g_name:
                                 t["name"] = e_name.strip() or g_name
                                 t["type"] = e_type
-                                t["locations"] = new_locs
                                 t["schedule"] = new_sched
                                 t["output"] = {"to": e_out_to, "format": e_out_fmt}
                                 break
@@ -405,14 +486,52 @@ with tab_edit:
 
     st.markdown("### 🆕 新建任务组")
 
+    # 新建时的城市预选（表单外操作，表单内只读展示）
+    if "new_group_cities" not in st.session_state:
+        st.session_state.new_group_cities = []
+
+    if ALL_PROVINCES:
+        st.markdown("**🏙 预选城市**（先选好城市，再填写下方表单提交）")
+        nc1, nc2 = st.columns(2)
+        with nc1:
+            new_prov = st.selectbox("省份", ALL_PROVINCES, key="new_prov")
+        with nc2:
+            new_add_mode = st.radio("添加方式", ["选择单个城市", "整省全部添加"],
+                                     key="new_addmode", horizontal=True)
+
+        if new_add_mode == "选择单个城市":
+            na1, na2 = st.columns([4, 1])
+            with na1:
+                new_sel_city = st.selectbox("城市", PROVINCE_CITIES.get(new_prov, []), key="new_selcity")
+            with na2:
+                st.markdown("<br>", unsafe_allow_html=True)
+                if st.button("➕ 添加", key="new_addc"):
+                    if new_sel_city and new_sel_city not in st.session_state.new_group_cities:
+                        st.session_state.new_group_cities.append(new_sel_city)
+                        st.rerun()
+        else:
+            prov_all = PROVINCE_CITIES.get(new_prov, [])
+            new_ones = [c for c in prov_all if c not in st.session_state.new_group_cities]
+            if st.button(f"➕ 添加 {new_prov} 全部 {len(new_ones)} 个城市", key="new_addall"):
+                st.session_state.new_group_cities.extend(new_ones)
+                st.rerun()
+
+        if st.session_state.new_group_cities:
+            st.info(f"已预选 **{len(st.session_state.new_group_cities)}** 个城市："
+                    f" {', '.join(st.session_state.new_group_cities[:15])}"
+                    f"{'…' if len(st.session_state.new_group_cities) > 15 else ''}")
+            if st.button("清空预选", key="new_clear_cities"):
+                st.session_state.new_group_cities = []
+                st.rerun()
+
     with st.form("form_new_group", clear_on_submit=True):
         na, nb = st.columns(2)
         with na:
             f_name = st.text_input("任务组名称 *", placeholder="例：长三角历史气象组")
             f_type = st.selectbox("数据类型 *", list(TYPE_INFO.keys()),
                                   format_func=lambda k: f"{TYPE_INFO[k][0]} {TYPE_INFO[k][1]}")
-            f_locs = st.text_area("城市列表（每行一个）", placeholder="南京市\n上海市\n杭州市", height=130)
             f_enabled = st.checkbox("创建后立即启用", value=True)
+            st.caption(f"将使用上方预选的 {len(st.session_state.new_group_cities)} 个城市")
         with nb:
             f_stype = st.selectbox("执行方式 *", ["once", "cron", "interval"],
                                    format_func=lambda x: {"once": "🔂 单次执行", "cron": "⏰ Cron 定时", "interval": "🔄 固定间隔"}[x])
@@ -445,7 +564,7 @@ with tab_edit:
                     "name": f_name.strip(),
                     "type": f_type,
                     "enabled": f_enabled,
-                    "locations": [l.strip() for l in f_locs.strip().splitlines() if l.strip()],
+                    "locations": list(st.session_state.new_group_cities),
                     "meteo_types": [],
                     "schedule": new_sched,
                     "output": {"to": f_out_to, "format": f_out_fmt},
@@ -454,6 +573,7 @@ with tab_edit:
                 if not isinstance(fresh.get("task-groups"), list):
                     fresh["task-groups"] = []
                 fresh["task-groups"].append(new_tg)
+                st.session_state.new_group_cities = []
                 save_and_reload(fresh)
 
 

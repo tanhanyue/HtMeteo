@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
+import time
 from typing import TYPE_CHECKING
 
 import pandas as pd
@@ -58,9 +60,25 @@ def _run_forecast(tg: "TaskGroup", meteo: "HtMeteo", config: "HtMeteoConfig | No
     meteo.set_forecast_mode("on")
     meteo.set_history_mode("off")
     total = len(tg.locations)
+    ok_count = 0
+    skip_count = 0
+    REQUEST_INTERVAL = 1.0  # 每个城市之间间隔 1 秒，避免给平台造成压力
     for idx, loc in enumerate(tg.locations, 1):
         logger.info(f"[{idx}/{total}] [预报] 拉取：{loc}")
-        meteo.set_location(loc)
+        try:
+            meteo.set_location(loc)
+        except Exception as e:
+            logger.warning(f"  [跳过] {loc} 拉取失败（平台可能无此地点）：{e}")
+            skip_count += 1
+            continue
+
+        forecast_file = os.path.join(meteo.forecast_data_path, f"{loc}.csv")
+        if not os.path.exists(forecast_file):
+            logger.warning(f"  [跳过] {loc} 预报文件不存在，平台可能无此地点数据")
+            skip_count += 1
+            continue
+
+        ok_count += 1
         if config and config.database.enabled and tg.output.to in ("database", "both"):
             try:
                 from db_writer import write_dataframe_to_db
@@ -72,7 +90,10 @@ def _run_forecast(tg: "TaskGroup", meteo: "HtMeteo", config: "HtMeteoConfig | No
                 write_dataframe_to_db(df, table_name, config.database, loc)
             except Exception as e:
                 logger.error(f"  [DB] 写入失败 地点={loc}: {e}", exc_info=True)
-    logger.info(f"[预报] 全部完成，共 {total} 个地点。")
+
+        if idx < total:
+            time.sleep(REQUEST_INTERVAL)
+    logger.info(f"[预报] 全部完成：成功 {ok_count} / 跳过 {skip_count} / 总计 {total}")
 
 
 def _run_fetch_all_forecast(tg: "TaskGroup", meteo: "HtMeteo", config: "HtMeteoConfig | None" = None) -> None:
