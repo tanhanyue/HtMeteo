@@ -1,18 +1,22 @@
 -- =============================================================================
--- Doris 建表语句：逐小时天气预报表（与 HtMeteo 写入的 weather_forecast_hourly 一致）
+-- Doris 建表语句：逐小时天气预报表
+-- 使用 UNIQUE KEY(date, location)，相同时次+地点的数据会自动覆盖更新
 -- =============================================================================
--- 使用前请将下方数据库名、表名、副本数等按需修改，在 Doris 中执行本 SQL 建表后再运行程序写入数据。
--- 表名需与 config.yaml 中 database.table_prefix + "forecast_hourly" 一致，
--- 例如 table_prefix = "weather_" 则表名为 weather_forecast_hourly。
+-- 使用前：
+--   1) 先删旧表：DROP TABLE IF EXISTS power_spot_weather.weather_forecast_hourly;
+--   2) 再执行本 SQL 建表
+--   3) 表名需与 config.yaml 中 database.table_prefix + "forecast_hourly" 一致
 -- =============================================================================
 
-CREATE TABLE IF NOT EXISTS power_spot_weather.weather_forecast_hourly (
-    `date`              DATETIME     COMMENT '预报时次',
-    `location`          VARCHAR(64)  COMMENT '地点名称，如成都市、西安市',
+DROP TABLE IF EXISTS power_spot_weather.weather_forecast_hourly;
+
+CREATE TABLE power_spot_weather.weather_forecast_hourly (
+    `date`              DATETIME     NOT NULL COMMENT '预报时次（含小时）',
+    `location`          VARCHAR(64)  NOT NULL COMMENT '地点名称',
     `temperature_2m`    DOUBLE       COMMENT '2米气温(℃)',
     `relative_humidity_2m`   DOUBLE  COMMENT '2米相对湿度(%)',
     `dew_point_2m`      DOUBLE       COMMENT '2米露点温度(℃)',
-    `apparent_temperature`   DOUBLE COMMENT '体感温度(℃)',
+    `apparent_temperature`   DOUBLE  COMMENT '体感温度(℃)',
     `precipitation`     DOUBLE       COMMENT '降水量(mm)',
     `rain`              DOUBLE       COMMENT '降雨(mm)',
     `snowfall`          DOUBLE       COMMENT '降雪(mm)',
@@ -29,7 +33,7 @@ CREATE TABLE IF NOT EXISTS power_spot_weather.weather_forecast_hourly (
     `wind_direction_10m`  DOUBLE     COMMENT '10米风向(°)',
     `wind_direction_100m` DOUBLE     COMMENT '100米风向(°)',
     `wind_gusts_10m`    DOUBLE       COMMENT '10米阵风(m/s)',
-    `surface_temperature` DOUBLE    COMMENT '地表温度(℃)',
+    `surface_temperature` DOUBLE     COMMENT '地表温度(℃)',
     `soil_temperature_0_to_7cm`   DOUBLE COMMENT '0-7cm土壤温度(℃)',
     `soil_moisture_0_to_7cm`      DOUBLE COMMENT '0-7cm土壤湿度(m³/m³)',
     `soil_moisture_7_to_28cm`     DOUBLE COMMENT '7-28cm土壤湿度(m³/m³)',
@@ -42,8 +46,8 @@ CREATE TABLE IF NOT EXISTS power_spot_weather.weather_forecast_hourly (
     `direct_normal_irradiance_instant` DOUBLE COMMENT '法向直射辐射瞬时(W/m²)',
     `global_tilted_irradiance_instant` DOUBLE COMMENT '斜面总辐射瞬时(W/m²)'
 )
-DUPLICATE KEY(`date`, `location`)
-COMMENT 'HtMeteo 逐小时天气预报数据'
+UNIQUE KEY(`date`, `location`)
+COMMENT 'HtMeteo 逐小时天气预报数据（同 date+location 自动覆盖更新）'
 PARTITION BY RANGE(`date`) (
     PARTITION p2026_01 VALUES LESS THAN ("2026-02-01"),
     PARTITION p2026_02 VALUES LESS THAN ("2026-03-01"),
@@ -63,15 +67,3 @@ DISTRIBUTED BY HASH(`location`) BUCKETS 10
 PROPERTIES (
     "replication_num" = "3"
 );
-
--- 若需按动态分区自动创建（按天），可改用以下建表（二选一）：
--- PARTITION BY RANGE(`date`) ()
--- PROPERTIES (
---     "replication_num" = "3",
---     "dynamic_partition.enable" = "true",
---     "dynamic_partition.time_unit" = "DAY",
---     "dynamic_partition.start" = "-7",
---     "dynamic_partition.end" = "30",
---     "dynamic_partition.prefix" = "p",
---     "dynamic_partition.buckets" = "10"
--- );
